@@ -29,107 +29,110 @@ def getCurrentTime():
 
 
 def main():
-    scan = {
-        'start_time': getCurrentTime(),
-        'end_time': None,
-        'num_searched': HOW_MANY_TO_SEARCH,
-        'pairs': [],
-    }
+    while(1):
 
-    # Get 1000 pairs
-    pairs = GetFirstThousandPairs()
+        scan = {
+            'start_time': getCurrentTime(),
+            'end_time': None,
+            'num_searched': HOW_MANY_TO_SEARCH,
+            'pairs': [],
+        }
 
-    # get time now.
-    # calculate times going back every 24hrs for 30 days
-    # int truncates ms, which aren't important for us.
-    # Also subtract a few minutes for blocks to be updated
-    time_now = int(time.time()) - 300
+        # Get 1000 pairs
+        pairs = GetFirstThousandPairs()
 
-    # get date 30 days before this moment.
-    timestamps = Return24hrTimestamps(time_now, LOOKBACK_PERIOD)
-    blocks = ConvertTimeStampsToBlocks(timestamps)
+        # get time now.
+        # calculate times going back every 24hrs for 30 days
+        # int truncates ms, which aren't important for us.
+        # Also subtract a few minutes for blocks to be updated
+        time_now = int(time.time()) - 300
 
-    for i in range(0, HOW_MANY_TO_SEARCH):
-        if (i % 50 == 0):
-            print('Got through %d so far' % i)
+        # get date 30 days before this moment.
+        timestamps = Return24hrTimestamps(time_now, LOOKBACK_PERIOD)
+        blocks = ConvertTimeStampsToBlocks(timestamps)
 
-        # Pair data
-        pair = pairs[i]
-        token0 = pair['token0']
-        token1 = pair['token1']
-        pair_string = token0['symbol'] + '-' + token1['symbol']
-        pair_address = pair['id']
+        for i in range(0, HOW_MANY_TO_SEARCH):
+            if (i % 50 == 0):
+                print('Got through %d so far' % i)
 
-        # get 10-30 days worth of volume statistics for a given currency
-        tv_data = GetVolumeStatistics(pair_address, blocks)
-        len_desired = LOOKBACK_PERIOD
+            # Pair data
+            pair = pairs[i]
+            token0 = pair['token0']
+            token1 = pair['token1']
+            pair_string = token0['symbol'] + '-' + token1['symbol']
+            pair_address = pair['id']
 
-        if ((tv_data == None) or (len(tv_data) != LOOKBACK_PERIOD + 1)):
-            print('Pair %s full historical data not available. Examine it manually.' % pair_string)
-            time.sleep(0.1)
-        else:
-            vol = CalculateVolFromTotalVol(tv_data)
+            # get 10-30 days worth of volume statistics for a given currency
+            tv_data = GetVolumeStatistics(pair_address, blocks)
+            len_desired = LOOKBACK_PERIOD
 
-            print('Examining Volume for Pair:' + pair_string)
-            print('Contract: %s.' % pair_address)
+            if ((tv_data == None) or (len(tv_data) != LOOKBACK_PERIOD + 1)):
+                print('Pair %s full historical data not available. Examine it manually.' % pair_string)
+                time.sleep(0.1)
+            else:
+                vol = CalculateVolFromTotalVol(tv_data)
 
-            if (np.argmax(vol) == len_desired - 1 and (np.max(vol) < 2.5 * float(np.max(vol[0:len_desired - 2])))):
-                # if most recent period is max, take a closer look:
-                print('24hr volume is most in 10 day period for pair %s. Plotting:' % pair_string)
+                print('Examining Volume for Pair:' + pair_string)
+                print('Contract: %s.' % pair_address)
 
-                plt.bar(np.arange(0, len_desired), vol)
+                if (np.argmax(vol) == len_desired - 1 and (np.max(vol) < 2.5 * float(np.max(vol[0:len_desired - 2])))):
+                    # if most recent period is max, take a closer look:
+                    print('24hr volume is most in 10 day period for pair %s. Plotting:' % pair_string)
 
-                # Append find to data for this scan
-                pair_object = {
-                    'name': pair_string,
-                    'address': pair['id'],
-                    # 'volumes': vol,
-                    'time': getCurrentTime(),
-                }
-                scan['pairs'].append(pair_object)
+                    plt.bar(np.arange(0, len_desired), vol)
 
-                # Save img and plot
-                fileStr = pair_string
-                plt.title(fileStr)
-                plt.savefig('./images/' + fileStr)
-                plt.clf()
+                    # Append find to data for this scan
+                    pair_object = {
+                        'name': pair_string,
+                        'address': pair['id'],
+                        # 'volumes': vol,
+                        'time': getCurrentTime(),
+                    }
+                    scan['pairs'].append(pair_object)
 
-            time.sleep(0.1)  # so i don't get DDOS warning (idk how fast i can poll yet)
+                    # Save img and plot
+                    fileStr = pair_string
+                    plt.title(fileStr)
+                    plt.savefig('./images/' + fileStr)
+                    plt.clf()
 
-    # Finalize the scan object
-    scan['end_time'] = getCurrentTime();
+                time.sleep(0.1)  # so i don't get DDOS warning (idk how fast i can poll yet)
 
-    # Get new pairs we should be notified about
-    new_pairs = compare_old_and_new(scan)
+        # Finalize the scan object
+        scan['end_time'] = getCurrentTime();
 
-    # Write current scan to file
-    write_to_json(scan)
+        # Get new pairs we should be notified about
+        new_pairs = compare_old_and_new(scan)
 
-    # Tell discord about the new pairs / current scan
-    discord_string = formatDiscordString(scan, new_pairs)
-    if(discord_string != None):
+        # Write current scan to file
+        write_to_json(scan)
 
-        len_string = len(discord_string)
+        # Tell discord about the new pairs / current scan
+        discord_string = formatDiscordString(scan, new_pairs)
+        if(discord_string != None):
 
-        if len_string < 2000:
-            pingDiscord({'content': discord_string})
-        else:
-            len_msg_i = [0]
-            i = 0
-            while i < len_string:  # figure out how long each message is such that each new message starts with '-'
-                i = i + 2000
-                if i > len_string:
-                    len_msg_i.append(len_string - 1)  # can send the whole remaining message
-                else:
-                    while (not(discord_string[i] == '-' and discord_string[i+1] == ' ')):
-                        i = i - 1
-                    len_msg_i.append(i)
+            len_string = len(discord_string)
 
-            for i in range(0, len(len_msg_i) - 1):
-                pingDiscord({'content': discord_string[len_msg_i[i]:len_msg_i[i + 1]]})
+            if len_string < 2000:
+                pingDiscord({'content': discord_string})
+            else:
+                len_msg_i = [0]
+                i = 0
+                while i < len_string:  # figure out how long each message is such that each new message starts with '-'
+                    i = i + 2000
+                    if i > len_string:
+                        len_msg_i.append(len_string - 1)  # can send the whole remaining message
+                    else:
+                        while (not(discord_string[i] == '-' and discord_string[i+1] == ' ')):
+                            i = i - 1
+                        len_msg_i.append(i)
 
-    print('final new pairs', new_pairs)
+                for i in range(0, len(len_msg_i) - 1):
+                    pingDiscord({'content': discord_string[len_msg_i[i]:len_msg_i[i + 1]]})
 
+        print('final new pairs', new_pairs)
+
+        time.sleep(600)
 
 def formatDiscordString(scan, new_pairs):
     strs = []
