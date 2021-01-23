@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+# from matplotlib.pyplot import figure
 import numpy as np
 import time
 import datetime
@@ -6,6 +7,8 @@ import datetime
 from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
 
+
+plt.rcParams["figure.figsize"] = (5,3)
 
 #os.environ["PROVIDER"] = "https://mainnet.infura.io/v3/ac6c8b97894749d09f1c78f9577b56d9" # Go to Infura and copy paste "Endpoints"
 
@@ -17,13 +20,21 @@ def GetFirstThousandPairs(client):
         {
          pairs(first: 1000, orderBy: txCount, orderDirection: desc) {
            id
+           token0 {
+            id
+            symbol
+            name
+          }
+          token1 {
+            id
+            symbol
+            name
+          }
          }
         }
     ''')
     list_of_pairs = client.execute(query)
-
-
-    return list_of_pairs
+    return list_of_pairs['pairs']
 
 # given a timestamp, generate the set of timestamps going back in time in 24hr intervals
 # for num_days days. timestamps are ordered from past to future
@@ -115,31 +126,6 @@ def CalculateVolFromTotalVol(total_vol):
 
     return dv_vol
 
-def QueryNameData(contract, client):
-    params_name = {
-        "id": contract
-    }
-    name = gql("""
-        query ($id : ID!) 
-          {
-           pair(id: $id){
-               token0 {
-                 id
-                 symbol
-                 name
-               }
-               token1 {
-                 id
-                 symbol
-                 name
-               }
-           }
-          }            
-    """)
-    name_data = client.execute(name, variable_values=params_name)
-
-    return name_data
-
 def main():
 
     LOOKBACK_PERIOD = 10 # days
@@ -155,7 +141,6 @@ def main():
     )
 
     pairs = GetFirstThousandPairs(client)
-    #print(pairs)
 
     contracts = [None]*1000
 
@@ -165,6 +150,7 @@ def main():
     #
     time_now = int(time.time()) - 300 # int truncates ms, which aren't important for us. Also subtract a few minutes for blocks to be updated
     # get date 30 days before this moment.
+
     timestamps = Return24hrTimestamps(time_now, LOOKBACK_PERIOD)
     blocks = ConvertTimeStampsToBlocks(timestamps)
 
@@ -173,48 +159,58 @@ def main():
     useToday = False
 
     if(text == '1'):
-        for i in range(650, 1000):
-
-            if (i % 50 == 0):
-                print('Got through %d so far' % i)
-
-            contracts[i] = pairs['pairs'][i]['id']
-
-            # Get name data for convenience
-            name_data = QueryNameData(contracts[i], client)
-
-            # get 10-30 days worth of volume statistics for a given currency
-            tv_data = GetVolumeStatistics(contracts[i], blocks, client)
-            len_desired = LOOKBACK_PERIOD
-
-            if((tv_data == None) or (len(tv_data) != LOOKBACK_PERIOD+1)):
-                print('Contract %s full historical data not available. Examine it manually.' % contracts[i])
-                time.sleep(0.1)
-            else:
-                vol = CalculateVolFromTotalVol(tv_data)
-
-                print('Examining Volume for Pair:' + name_data['pair']['token0']['symbol'] + '/' + name_data['pair']['token1']['symbol'])
-                print('Contract: %s.' % contracts[i])
-                if(np.argmax(vol) == len_desired - 1 and (np.max(vol) < 2.5*float(np.max(vol[0:len_desired-2])))): # if most recent period is max, take a closer look:
-                    print('24hr volume is most in 30 day period for contract %s. Plotting:' % contracts[i])
-
-                    plt.bar(np.arange(0, len_desired), vol)
-                    plt.title(name_data['pair']['token0']['symbol']+'/'+name_data['pair']['token1']['symbol'])
-                    plt.show()
-                    plt.clf()
-                time.sleep(0.1) # so i don't get DDOS warning (idk how fast i can poll yet)
-
-    elif(text == '2'): # large deviation stuff
         for i in range(0, 1000):
 
             if (i % 50 == 0):
                 print('Got through %d so far' % i)
 
-            contracts[i] = pairs['pairs'][i]['id']
+            current_pair = pairs[i]
+            contracts[i] = current_pair
+
+            token0 = current_pair['token0']
+            token1 = current_pair['token1']
+
+            pair_string = token0['symbol'] + '-' + token1['symbol']
+            pair_address = current_pair['id']
+
+            # get 10-30 days worth of volume statistics for a given currency
+            tv_data = GetVolumeStatistics(pair_address, blocks, client)
+            len_desired = LOOKBACK_PERIOD
+
+            if((tv_data == None) or (len(tv_data) != LOOKBACK_PERIOD+1)):
+                print('Pair %s full historical data not available. Examine it manually.' % pair_string)
+                time.sleep(0.1)
+            else:
+                vol = CalculateVolFromTotalVol(tv_data)
+
+                print('Examining Volume for Pair:' + pair_string)
+                print('Contract: %s.' % pair_address)
+
+                if(np.argmax(vol) == len_desired - 1 and (np.max(vol) < 2.5*float(np.max(vol[0:len_desired-2])))):
+                    # if most recent period is max, take a closer look:
+                    print('24hr volume is most in 30 day period for pair %s. Plotting:' % pair_string)
+
+                    plt.bar(np.arange(0, len_desired), vol)
+
+                    fileStr = pair_string
+
+                    plt.title(fileStr)
+                    # plt.show()
+                    plt.savefig('./images/' + fileStr)
+                    plt.clf()
+                time.sleep(0.1) # so i don't get DDOS warning (idk how fast i can poll yet)
+
+    elif(text == '2'): # large deviation stuff
+        for i in range(0, 3):
+
+            if (i % 50 == 0):
+                print('Got through %d so far' % i)
+
+            contracts[i] = pairs['pairs'][i]
 
 
             # Get name data for convenience
-            name_data = QueryNameData(contracts[i], client)
+            # name_data = QueryNameData(contracts[i], client)
 
             # get 10-30 days worth of volume statistics for a given currency
             tv_data = GetVolumeStatistics(contracts[i], blocks, client)
@@ -345,3 +341,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    print('Done')
